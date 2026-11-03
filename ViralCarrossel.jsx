@@ -15,6 +15,8 @@ import {
   assertPresentationTextLimits,
   buildPresentationLimitsBlock,
   generateReviewedCarousel,
+  generationMaxTokens,
+  socialIssuesMessage,
   presentationTextLimitsFromSlides,
 } from './src/utils/editorial-review.js';
 import { normalizePresentationBlocks, repairPresentationLayouts, auditRenderedPresentationLayout } from './src/utils/presentation-quality.js';
@@ -5053,7 +5055,7 @@ ${jsonShapeLine}`;
 
     setGenProgress({ phase: 'text', current: 1, total: isPresentationGeneration ? 5 : 3, label: isPresentationGeneration ? 'Etapa 1 de 5 · Organizando o roteiro e as evidências' : 'Etapa 1 de 3 · Escrevendo o texto' });
     // Orçamento de saída cresce com o número de cards (T/C 1/1 traz subtitle + bodyAfterImage por slide) — auditoria M2.
-    const genMaxTokens = Math.min(8192, 3072 + Math.max(1, Number(count) || 1) * 512);
+    const genMaxTokens = generationMaxTokens(count, { presentation: isPresentationGeneration });
     const planningBrief = [
       buildGenerationTaskBlock(topic, announcement),
       n ? `Área ou contexto: ${n}` : '',
@@ -5063,7 +5065,7 @@ ${jsonShapeLine}`;
       brandBlock,
       styleKitTextHint,
     ].filter(Boolean).join('\n');
-    const { result, reviewStatus, plan: generationPlan } = await generateReviewedCarousel({
+    const { result, reviewStatus, socialIssues, plan: generationPlan } = await generateReviewedCarousel({
       prompt,
       config: {
         count: Number(count),
@@ -5108,7 +5110,7 @@ ${jsonShapeLine}`;
     checkActive();
     if (reviewStatus === 'unavailable') toast('Texto gerado. A revisão automática não foi concluída; mantive a primeira versão.', 'warning', 6500);
     if (reviewStatus === 'fitted') toast('Encurtei o texto que não cabia no layout da apresentação.', 'warning', 6500);
-    if (reviewStatus === 'needs_attention') toast('Preservei o texto completo. Alguns slides ainda precisam de ajuste antes da exportação.', 'warning', 8000);
+    if (reviewStatus === 'needs_attention') toast(socialIssues ? socialIssuesMessage(socialIssues) : 'Preservei o texto completo. Alguns slides ainda precisam de ajuste antes da exportação.', 'warning', 9000);
     if (!result?.slides?.length) { setGenProgress(null); throw new Error('IA não retornou slides. Tente um tema mais específico.'); }
     setGenProgress({ phase: 'text', current: isPresentationGeneration ? 4 : 3, total: isPresentationGeneration ? 5 : 3, label: isPresentationGeneration ? 'Etapa 4 de 5 · Compondo a apresentação' : 'Etapa 3 de 3 · Montando os cards' });
 

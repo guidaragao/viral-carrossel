@@ -39,6 +39,32 @@ export function recoverSocialTitle(slide) {
   return slide;
 }
 
+/**
+ * Last deterministic step when no complete sentence fits as a title: move the
+ * opening clause (up to a comma, semicolon, colon or dash) into the title. All
+ * words stay on the card, in the same order; nothing is invented or dropped.
+ */
+export function recoverSocialTitleAtClause(slide) {
+  const sentence = recoverSocialTitle(slide);
+  if (!socialTitleMissing(sentence)) return sentence;
+  const subtitle = String(slide?.subtitle || '').trim();
+  if (!subtitle) return slide;
+  const spans = [
+    ...markdownBoldAccentIntervalsUtf16(subtitle),
+    ...markdownItalicIntervalsUtf16(subtitle),
+  ];
+  const clauses = /\s*[,;:\u2013\u2014](?=\s)/gu;
+  for (const match of subtitle.matchAll(clauses)) {
+    const end = match.index + match[0].length;
+    const title = subtitle.slice(0, match.index).trim();
+    const rest = subtitle.slice(end).trim();
+    if (title.length < 8 || title.length > 120 || !rest) continue;
+    if (spans.some(([lo, hi]) => end > lo && end < hi)) continue;
+    return { ...slide, title, subtitle: rest };
+  }
+  return slide;
+}
+
 export function missingSocialTitleIndexes(slides, config = {}) {
   return requiresSocialTitles(config)
     ? (Array.isArray(slides) ? slides : []).flatMap((slide, index) => socialTitleMissing(slide) ? [index] : [])

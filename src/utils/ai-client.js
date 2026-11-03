@@ -261,10 +261,20 @@ function translateProviderError(provider, status, data, raw) {
   return msg || `${provider === 'zai' ? 'Moont AI' : 'Kimi'} HTTP ${status}`;
 }
 
+/**
+ * GLM models think by default and the reasoning tokens are billed against the
+ * same max_tokens as the answer. Callers that run a bounded JSON task (the
+ * editorial review) pass reasoning: false so the whole budget goes to the JSON.
+ * Other providers keep their defaults.
+ */
+export function compatibleReasoningPayload(provider, reasoning) {
+  return provider === 'zai' && reasoning === false ? { thinking: { type: 'disabled' } } : {};
+}
+
 const callCompatibleChat = async (
   provider,
   userMsg,
-  { json = false, jsonParser = null, maxTokens = 4096, signal, systemPrompt = AI_SYSTEM_PT, temperature = 0.8 } = {},
+  { json = false, jsonParser = null, maxTokens = 4096, signal, systemPrompt = AI_SYSTEM_PT, temperature = 0.8, reasoning } = {},
 ) => {
   const apiKey = getProviderKey(provider);
   // Local com chave: proxy Vite directo. Sem chave: proxy serverless (env no host).
@@ -283,6 +293,7 @@ const callCompatibleChat = async (
     temperature: Number.isFinite(temperature) ? Math.max(0, Math.min(1, temperature)) : 0.8,
   };
   if (json) basePayload.response_format = { type: 'json_object' };
+  Object.assign(basePayload, compatibleReasoningPayload(provider, reasoning));
 
   const url = useDirect ? COMPATIBLE_DIRECT_URLS[provider] : COMPATIBLE_AI_URL;
   let lastError = null;
@@ -356,7 +367,7 @@ const callCompatibleChat = async (
 
 // Texto incluso = Z.ai no servidor (`ZAI_API_KEY`). Sem chave própria noutro
 // provedor, usa sempre Z.ai — não cai em Anthropic (mais caro).
-const callAI = (userMsg, { json = false, jsonParser = null, maxTokens = 4096, openaiKey = null, contentMode, presentationPath, temperature, signal: parentSignal } = {}) => runAIJob(async (signal) => {
+const callAI = (userMsg, { json = false, jsonParser = null, maxTokens = 4096, openaiKey = null, contentMode, presentationPath, temperature, reasoning, signal: parentSignal } = {}) => runAIJob(async (signal) => {
   const systemPrompt = contentMode === 'pitch' ? PITCH_SYSTEM_PT
     : contentMode === 'presentation' ? buildPresentationSystemPrompt(presentationPath) : AI_SYSTEM_PT;
   let provider = _aiRuntimeSettings.textProvider;
@@ -369,7 +380,7 @@ const callAI = (userMsg, { json = false, jsonParser = null, maxTokens = 4096, op
     return callOpenAIChat(userMsg, { json, jsonParser, maxTokens, signal, systemPrompt, key: getProviderKey('openai') || openaiKey });
   }
   if (provider === 'zai' || provider === 'kimi') {
-    return callCompatibleChat(provider, userMsg, { json, jsonParser, maxTokens, signal, systemPrompt, temperature });
+    return callCompatibleChat(provider, userMsg, { json, jsonParser, maxTokens, signal, systemPrompt, temperature, reasoning });
   }
   throw new Error('Modelo de texto inválido. Abra Configurar IA e escolha uma opção.');
 }, parentSignal);

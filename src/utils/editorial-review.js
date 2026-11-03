@@ -5,7 +5,63 @@ import { isPitchPath, cleanPitchSlide, cleanPitchText } from './pitch-content.js
 import { presentationAIOptions, buildPresentationReviewRules } from './presentation.js';
 import { buildPresentationPlanPrompt, validatePresentationPlan, buildPresentationPlanBlock, attachPresentationPlan } from './presentation-plan.js';
 import { buildPresentationBlocksPrompt, normalizePresentationBlocks } from './presentation-quality.js';
-import { requiresSocialTitles, recoverSocialTitle, missingSocialTitleIndexes, longSocialSupportIndexes, SOCIAL_SUPPORT_MAX_CHARS, SOCIAL_SUPPORT_MAX_LINES } from './social-generation.js';
+import { requiresSocialTitles, recoverSocialTitle, recoverSocialTitleAtClause, socialTitleMissing, missingSocialTitleIndexes, longSocialSupportIndexes, SOCIAL_SUPPORT_MAX_CHARS, SOCIAL_SUPPORT_MAX_LINES } from './social-generation.js';
+import { PLATFORM_MAX_TOKENS } from '../../shared/ai-models.js';
+
+const cardCount = count => Math.max(1, Number(count) || 1);
+
+/**
+ * Output budget for the first draft. Social cards carry title, subtitle,
+ * bodyAfterImage, imageQuery and a caption up to 2200 chars; the included
+ * models also spend reasoning tokens from this same budget, so 512 per card
+ * truncated 7-card carousels (mostly in English). Presentations keep their
+ * previous budget, which has been working.
+ */
+export function generationMaxTokens(count, { presentation = false } = {}) {
+  const perCard = presentation ? 512 : 768;
+  return Math.min(PLATFORM_MAX_TOKENS, 3072 + cardCount(count) * perCard);
+}
+
+/**
+ * Output budget for the single editorial review. The review reads the whole
+ * draft and may rewrite title + subtitle of every card plus the caption, so it
+ * needs at least what the draft needed. It used to inherit the draft budget.
+ */
+export function editorialReviewMaxTokens(count) {
+  return Math.min(PLATFORM_MAX_TOKENS, 4096 + cardCount(count) * 768);
+}
+
+/**
+ * Deterministic last step for social cards after the review (or after a
+ * failed review): move an existing opening clause into a missing title and
+ * report what is still outside the card contract. Never invents copy, never
+ * cuts text.
+ */
+export function settleSocialDraft(draft, config = {}) {
+  if (!requiresSocialTitles(config) || !Array.isArray(draft?.slides)) return { result: draft, issues: null };
+  const slides = draft.slides.map(slide => (socialTitleMissing(slide) ? recoverSocialTitleAtClause(slide) : slide));
+  const result = { ...draft, slides };
+  const missingTitles = missingSocialTitleIndexes(slides, config);
+  const longSupport = longSocialSupportIndexes(slides, config);
+  return {
+    result,
+    issues: missingTitles.length || longSupport.length ? { missingTitles, longSupport } : null,
+  };
+}
+
+const humanList = items => (items.length <= 1 ? String(items[0] ?? '') : `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`);
+
+/** Non-blocking warning shown when the draft opens with cards still to adjust. */
+export function socialIssuesMessage(issues) {
+  if (!issues) return '';
+  const cards = [...new Set([...(issues.missingTitles || []), ...(issues.longSupport || [])])].sort((a, b) => a - b).map(i => i + 1);
+  if (!cards.length) return '';
+  const label = cards.length === 1 ? 'do card' : 'dos cards';
+  const what = issues.missingTitles?.length && issues.longSupport?.length
+    ? 'o título e o apoio'
+    : issues.missingTitles?.length ? 'o título' : 'o apoio';
+  return `Texto gerado e preservado. Ajuste ${what} ${label} ${humanList(cards)} antes de publicar.`;
+}
 
 const isObject = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const hasOwn = (o, key) => Object.prototype.hasOwnProperty.call(o, key);
@@ -360,29 +416,43 @@ export async function generateReviewedCarousel({ prompt, config, aiOptions, onRe
     : prompt;
   // Missing titles get the same existing editorial round, not another paid
   // retry. Complete first sentences can already be moved without losing copy.
+  const relaxedConfig = isPresentation ? config : { ...config, allowMissingSocialTitles: true, allowLongSocialSupport: true };
   const draft = validateCarouselDraft(await callAI(generationPrompt, textOptions), { ...config, allowMissingSocialTitles: true, allowLongSocialSupport: true });
   const draftLimitViolations = isPresentation
     ? auditPresentationTextLimits(draft.slides, config?.presentationTextLimits)
     : [];
   throwIfGenerationCancelled(aiOptions?.signal);
   onReview?.();
+  const reviewOptions = {
+    ...textOptions,
+    maxTokens: Math.max(Number(textOptions.maxTokens) || 0, editorialReviewMaxTokens(config?.count || draft.slides.length)),
+    // A bounded JSON edit task: reasoning tokens only competed with the answer
+    // for the output budget and pushed the call past it (ai_output_truncated).
+    reasoning: false,
+  };
   try {
-    const review = await callAI(buildEditorialReviewPrompt(prompt, draft, config), textOptions);
-    const result = applyEditorialReview(draft, review, config);
+    const review = await callAI(buildEditorialReviewPrompt(prompt, draft, config), reviewOptions);
+    throwIfGenerationCancelled(aiOptions?.signal);
+    // The commercial-claim guard still throws here. Social title/support gaps
+    // that the review left behind are settled below instead of discarding a
+    // complete, paid draft.
+    const reviewed = applyEditorialReview(draft, review, relaxedConfig);
+    const { result, issues } = settleSocialDraft(reviewed, config);
+    if (issues) return { result, reviewStatus: 'needs_attention', socialIssues: issues };
     return { result, reviewStatus: JSON.stringify(result) === JSON.stringify(draft) ? 'unchanged' : 'revised' };
   } catch (error) {
     if (isGenerationCancelled(error) || aiOptions?.signal?.aborted) throw error;
-    if (missingSocialTitleIndexes(draft.slides, config).length || longSocialSupportIndexes(draft.slides, config).length) {
-      // Keep the complete unmodified draft available to callers for recovery;
-      // do not replace the current project with known title placeholders.
-      throw Object.assign(new Error('A revisão não conseguiu completar os títulos. Seu projeto foi preservado.'), {
-        code: missingSocialTitleIndexes(draft.slides, config).length ? 'social_title_missing' : 'social_support_too_long', generatedDraft: draft,
-      });
-    }
     if (auditUnsupportedCommercialClaims(draft.slides, config?.commercialClaimSource).length) {
       throw Object.assign(new Error('A revisão não conseguiu remover promessas comerciais sem apoio no briefing. Seu projeto foi preservado.'), {
         code: 'unsupported_commercial_claim', generatedDraft: draft,
       });
+    }
+    if (!isPresentation) {
+      // The draft is complete and valid apart from title/support length: open
+      // it with a clear warning naming the cards, never empty placeholders.
+      const { result, issues } = settleSocialDraft(draft, config);
+      if (issues) return { result, reviewStatus: 'needs_attention', socialIssues: issues, reviewError: error?.code || null };
+      return { result, reviewStatus: 'unavailable' };
     }
     // A revisão é a única oportunidade automática de corrigir um primeiro
     // rascunho acima dos limites. Se ela falhar ou continuar inválida, não

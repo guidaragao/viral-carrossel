@@ -7,6 +7,7 @@ import {
   auditPresentationTextLimits,
   buildEditorialReviewPrompt,
   buildPresentationLimitsBlock,
+  editorialReviewMaxTokens,
   generateReviewedCarousel,
   normalizePresentationTextLimits,
   presentationTextLimitsFromSlides,
@@ -87,7 +88,8 @@ describe('geração com uma revisão editorial', () => {
     expect(ai).toHaveBeenCalledTimes(2);
     expect(ai.mock.calls[1][0]).toContain('Uma consequência');
     expect(ai.mock.calls[1][0]).toContain('promessa da capa');
-    expect(ai.mock.calls[1][1]).toEqual({ maxTokens: 4608, json: true });
+    expect(ai.mock.calls[0][1]).toEqual({ maxTokens: 4608, json: true });
+    expect(ai.mock.calls[1][1]).toEqual({ maxTokens: editorialReviewMaxTokens(config.count), json: true, reasoning: false });
     expect(onReview).toHaveBeenCalledTimes(1);
     expect(output.reviewStatus).toBe('revised');
     expect(output.result.slides[1].subtitle).toBe('Um exemplo concreto');
