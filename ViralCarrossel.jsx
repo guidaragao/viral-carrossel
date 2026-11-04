@@ -113,6 +113,7 @@ import * as accountLibraryMeta from './src/utils/account-library-meta.js';
 
 import { FORMATS } from './src/utils/formats.js';
 import { usePhotoFraming } from './src/hooks/usePhotoFraming.js';
+import { automaticPhotoFramingPatch } from './src/utils/photo-framing.js';
 import { applyBrandEdit, applyFormatEdit, brandForFormatDisplay, slideForFormatDisplay, transformFormatVisuals } from './src/utils/format-view.js';
 import { PALETTES, TITLE_FONTS, TEMPLATES } from './src/utils/design-data.js';
 import { getServerStatus } from './src/utils/server-status.js';
@@ -3925,12 +3926,12 @@ export default function App() {
         if (patch.bgImageId && patch.bgImage) {
           imagemUrlsRef.current.set(patch.bgImageId, patch.bgImage);
         }
-        updateSlideAt(sIdx, {
+        updateSlideAt(sIdx, automaticPhotoFramingPatch({
           ...patch,
           bgImageSource: 'imported',
           bgImageFailed: false,
           bgImageError: null,
-        });
+        }, slidesLiveRef.current[sIdx]));
         setGenProgress({ phase: 'import', current: 1, total: 1, label: 'Foto importada · 1/1' });
         toast('Foto importada.', 'success', 2500);
       } catch (err) {
@@ -4505,7 +4506,7 @@ export default function App() {
       if (zone === 'photo') {
         const imageKeys = [
           'bgImage', 'bgImageId', 'bgImageSource', 'bgImageFailed', 'bgImageError',
-          'bgFit', 'bgZoom', 'bgPosX', 'bgPosY', 'bgFlipX', 'bgFlipY', 'bgOpacity',
+          'photoFraming', 'bgFit', 'bgZoom', 'bgX', 'bgY', 'bgMirror', 'bgOpacity',
         ];
         const imagePatch = (source) => Object.fromEntries(
           imageKeys.map((key) => [key, source[key] ?? (key === 'bgImageId' ? null : undefined)]),
@@ -4643,17 +4644,13 @@ export default function App() {
       setSlides(prev => activeProjectRef.current !== generationProjectId ? prev : applySlidePatchIfImageCurrent(prev, {
         id: slideId,
         expectedImageIdentity,
-        patch: {
+        patch: automaticPhotoFramingPatch({
           ...patchImg,
           imgMode: 'dalle',
-          bgFit: 'cover',
-          bgX: 50,
-          bgY: 50,
-          bgZoom: 100,
           bgImageFailed: false,
           bgImageError: null,
           bgImageSource: 'ai',
-        },
+        }, liveTarget),
       }));
       toast(`${itemLabel === 'slide' ? 'Slide' : 'Card'} ${idx + 1}: imagem gerada`, 'success');
       return { ok: true, slideId };
@@ -8257,12 +8254,12 @@ Retorne APENAS JSON: ${refineAllWantsBody
         imageSrc={slide.bgImage || ''}
         fmt={fmt}
         onClose={() => setImageCropOpen(false)}
-        onApply={(dataUrl) => { void guardarImagemDoSlide(dataUrl).then((patch) => updateSlide({
+        onApply={(dataUrl) => { void guardarImagemDoSlide(dataUrl).then((patch) => updateSlide(automaticPhotoFramingPatch({
           ...patch,
           bgImageSource: 'edited',
           bgImageFailed: false,
           bgImageError: null,
-        })); }}
+        }, panelSlide))); }}
       />
       <PhotoPositionModal
         open={photoPositionOpen}
