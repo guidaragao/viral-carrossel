@@ -262,6 +262,39 @@ const VC_PHOTO_ZONE_HIT_LAYER_STYLE = {
   boxSizing: 'border-box',
 };
 
+/**
+ * Camada de toque da zona de foto. O `<input>` continua cobrindo a zona (iOS e testes),
+ * e um `<label htmlFor>` por cima ativa o mesmo input. No app desktop (WKWebView) o
+ * clique direto num input quase invisível não abria o seletor; o label é o mesmo
+ * caminho do botão "Importar foto" do painel, que funciona lá.
+ */
+function PhotoZoneFileHit({ onChange, style }) {
+  const id = React.useId();
+  const stop = (e) => e.stopPropagation();
+  return (
+    <>
+      <input
+        id={id}
+        type="file"
+        accept="image/*"
+        onChange={onChange}
+        onTouchStart={stop}
+        className="vc-photo-hit"
+        style={style}
+        aria-label="Importar imagem na zona da foto"
+      />
+      <label
+        htmlFor={id}
+        aria-hidden="true"
+        data-vc-photo-hit-label=""
+        onClick={stop}
+        onTouchStart={stop}
+        style={{ ...style, opacity: 1, background: 'transparent', zIndex: (style?.zIndex ?? 4) + 1 }}
+      />
+    </>
+  );
+}
+
 /** Superfície glass compartilhada por todos os renderizadores de card.
  * A cor semitransparente continua visível no PNG mesmo quando o motor de
  * captura não suporta backdrop-filter. */
@@ -922,15 +955,7 @@ const ClassicCanvasInner = React.forwardRef(({
       >
         {photoZoneChildren}
         {photoZoneNativeHit ? (
-          <input
-            type="file"
-            accept="image/*"
-            onChange={onPhotoZoneFileChange}
-            onTouchStart={(e) => e.stopPropagation()}
-            className="vc-photo-hit"
-            style={VC_PHOTO_ZONE_HIT_LAYER_STYLE}
-            aria-label="Importar imagem na zona da foto"
-          />
+          <PhotoZoneFileHit onChange={onPhotoZoneFileChange} style={VC_PHOTO_ZONE_HIT_LAYER_STYLE} />
         ) : null}
       </div>}
 
@@ -2656,15 +2681,7 @@ const SlideCardInner = React.forwardRef(({
               </div>
             )}
             {sandwichPhotoNativeHit ? (
-              <input
-                type="file"
-                accept="image/*"
-                onChange={onPhotoZoneFileInputChange}
-                onTouchStart={(e) => e.stopPropagation()}
-                className="vc-photo-hit"
-                style={VC_PHOTO_ZONE_HIT_LAYER_STYLE}
-                aria-label="Importar imagem na zona da foto"
-              />
+              <PhotoZoneFileHit onChange={onPhotoZoneFileInputChange} style={VC_PHOTO_ZONE_HIT_LAYER_STYLE} />
             ) : null}
           </div>
         )}
@@ -2956,18 +2973,10 @@ const SlideCardInner = React.forwardRef(({
             >
               {forExport ? '' : (slide.bgImageFailed ? 'Imagem indisponível — toque para substituir' : 'Toque para inserir foto')}
               {flatPhotoNativeHit ? (
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={onPhotoZoneFileInputChange}
-                  onTouchStart={(e) => e.stopPropagation()}
-                  className="vc-photo-hit"
-                  style={{
+                <PhotoZoneFileHit onChange={onPhotoZoneFileInputChange} style={{
                     ...VC_PHOTO_ZONE_HIT_LAYER_STYLE,
                     borderRadius: f.w * 0.017,
-                  }}
-                  aria-label="Importar imagem na zona da foto"
-                />
+                  }} />
               ) : null}
             </div>
           )}
@@ -3314,15 +3323,7 @@ const SlideCardInner = React.forwardRef(({
         >
           {slide.bgImageFailed ? 'Imagem indisponível — toque para substituir' : 'Toque para inserir foto'}
           {fullBleedNativeHit ? (
-            <input
-              type="file"
-              accept="image/*"
-              onChange={onPhotoZoneFileInputChange}
-              onTouchStart={(e) => e.stopPropagation()}
-              className="vc-photo-hit"
-              style={VC_PHOTO_ZONE_HIT_LAYER_STYLE}
-              aria-label="Importar imagem na zona da foto"
-            />
+            <PhotoZoneFileHit onChange={onPhotoZoneFileInputChange} style={VC_PHOTO_ZONE_HIT_LAYER_STYLE} />
           ) : null}
         </div>
       )}

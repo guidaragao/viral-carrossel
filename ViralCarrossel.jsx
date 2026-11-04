@@ -1,3 +1,4 @@
+import { resolveOutputLanguage, OUTPUT_LANGUAGE_LABELS } from './src/utils/output-language.js';
 import { useCaptionDelivery } from './src/hooks/useCaptionDelivery.js';
 import { copyTextToClipboard } from './src/utils/export-package.js';
 import { GenerationScopePicker } from './src/components/GenerationScopePicker.jsx';
@@ -556,6 +557,11 @@ function projectContentSnapshot(library) {
     }
     return { ...entry, doc: { ...doc, slides, brand, styleKit } };
   });
+}
+
+/** Brief que define o idioma de saída nos refinamentos: o mesmo texto da geração inicial. */
+function projectTopicForLanguage(doc) {
+  return String(doc?.editorialContext?.topic || doc?.quickPromptDraft || doc?.styleKit?.contextMd || '').trim();
 }
 
 function projectCacheFingerprint(entry) {
@@ -1714,7 +1720,11 @@ export default function App() {
     if (!entry) return;
     const owner = readDataOwner();
     const at = Date.now();
-    setCloudReceipts(current => ({ ...current, ...Object.fromEntries(snapshot.library.map(item => [item.id, { owner, at, fingerprint:projectCacheFingerprint(item) }])) }));
+    // Depois do envio, a foto ganha o ID da conta (adoptConfirmedAssetIds). O comprovante
+    // usa a mesma impressão confirmada, senão o indicador fica em "pendente na conta"
+    // até a pessoa clicar em Salvar, sem nada novo a enviar.
+    const confirmedFingerprint = (item) => (PROJECTS_V2 && v2BaselinesRef.current.get(item.id)) || projectCacheFingerprint(item);
+    setCloudReceipts(current => ({ ...current, ...Object.fromEntries(snapshot.library.map(item => [item.id, { owner, at, fingerprint:confirmedFingerprint(item) }])) }));
     setCloudUnsaved(false);
   }, []);
 
@@ -4976,10 +4986,12 @@ Não invente garantia, prazo, preço, item incluso ou promessa comercial que nã
     const remixBlock = remix ? buildRemixBlock(sourceSlides, fetchImagesNow) : '';
     const jsonShapeLine = buildGenerationJsonContract(cp, td, count, projectDesignInstructions ? PROJECT_DESIGN_SCHEMA : null, presentationPathId);
 
+    const outputLang = resolveOutputLanguage({ instructions: material?.context, content: material?.content, topic });
+    const outputLangLabel = OUTPUT_LANGUAGE_LABELS[outputLang] || OUTPUT_LANGUAGE_LABELS.pt;
     const idiomaRegra = `
 REGRA DE IDIOMA (obrigatória):
-- Redija em português brasileiro: "title", "subtitle", "bodyAfterImage" (se existir) e "caption".
-- Exceção: cada "imageQuery" permanece em INGLÊS (8–15 palavras), conforme a seção de direção de imagem — não traduza esse campo para o português.
+- Redija em ${outputLangLabel}: "title", "subtitle", "bodyAfterImage" (se existir) e "caption".
+- Exceção: cada "imageQuery" permanece em INGLÊS (8–15 palavras), conforme a seção de direção de imagem — não traduza esse campo.
 `;
 
     const contextoModoPerso =
@@ -5780,7 +5792,7 @@ ${jsonShapeLine}`;
       const brandBlock = buildBrandBlock(brand);
       const projectContextBlock = buildProjectContextBlock(styleKit);
       const styleKitTextHint = buildStyleKitTextHint(styleKit);
-      const { materialBlock, materialPriorityBlock } = await runAIJob(() => resolveMaterialPromptParts(material, toast, { presentationPath: isPresentationRefine ? presentationPath : null }), job.signal);
+      const { materialBlock, materialPriorityBlock } = await runAIJob(() => resolveMaterialPromptParts(material, toast, { presentationPath: isPresentationRefine ? presentationPath : null, topic: projectTopicForLanguage(doc) }), job.signal);
       const voiceRefine = buildRefineVoiceRules(creativePreset, mode);
       const nSl = slides.length;
       const presentationRefineTextLimits = isPresentationRefine
@@ -5867,7 +5879,7 @@ Retorne exatamente: ${singleJson}`,
       const projectContextBlock = buildProjectContextBlock(styleKit);
       const isPresentationSummary = isApresentacaoPreset(creativePreset);
       const capRules = buildCaptionVoiceRules(creativePreset, mode);
-      const { materialBlock, materialPriorityBlock } = await runAIJob(() => resolveMaterialPromptParts(material, toast, { presentationPath: isPresentationSummary ? presentationPath : null }), job.signal);
+      const { materialBlock, materialPriorityBlock } = await runAIJob(() => resolveMaterialPromptParts(material, toast, { presentationPath: isPresentationSummary ? presentationPath : null, topic: projectTopicForLanguage(doc) }), job.signal);
       const r = await callAI(
         `${isPresentationSummary
           ? 'Atue como editor de apresentações. Crie um resumo executivo e notas breves para acompanhar este deck em português brasileiro.'
@@ -6105,7 +6117,7 @@ ${isPresentationSummary
       const brandBlock = buildBrandBlock(brand);
       const projectContextBlock = buildProjectContextBlock(styleKit);
       const styleKitTextHint = buildStyleKitTextHint(styleKit);
-      const { materialBlock, materialPriorityBlock } = await runAIJob(() => resolveMaterialPromptParts(material, toast, { presentationPath: refiningPresentation ? presentationPath : null }), job.signal);
+      const { materialBlock, materialPriorityBlock } = await runAIJob(() => resolveMaterialPromptParts(material, toast, { presentationPath: refiningPresentation ? presentationPath : null, topic: projectTopicForLanguage(doc) }), job.signal);
       const voiceBulk = buildRefineVoiceRules(creativePreset, mode);
       const layoutBulk = buildGenerationSlideLayoutRules(mode, creativePreset, slideTextDensity, slides.length, presentationPath);
       const refinePrompt = refiningPresentation
