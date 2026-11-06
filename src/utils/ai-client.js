@@ -13,6 +13,7 @@ import { ZAI_FALLBACK_MODELS } from '../../shared/ai-models.js';
 import { prepareImageReferencesForUpload } from './image-reference-upload.js';
 import { PITCH_SYSTEM_PT } from './pitch-content.js';
 import { buildPresentationSystemPrompt } from './presentation.js';
+import { buildOutputLanguageSystemInstruction } from './output-language.js';
 
 // Acima do orçamento do proxy (240 s em api/ai/compatible.js): se o cliente
 // abortasse primeiro, o utilizador perdia uma geração que o servidor ainda ia
@@ -367,9 +368,11 @@ const callCompatibleChat = async (
 
 // Texto incluso = Z.ai no servidor (`ZAI_API_KEY`). Sem chave própria noutro
 // provedor, usa sempre Z.ai — não cai em Anthropic (mais caro).
-const callAI = (userMsg, { json = false, jsonParser = null, maxTokens = 4096, openaiKey = null, contentMode, presentationPath, temperature, reasoning, signal: parentSignal } = {}) => runAIJob(async (signal) => {
-  const systemPrompt = contentMode === 'pitch' ? PITCH_SYSTEM_PT
+const callAI = (userMsg, { json = false, jsonParser = null, maxTokens = 4096, openaiKey = null, contentMode, presentationPath, outputLanguage, temperature, reasoning, signal: parentSignal } = {}) => runAIJob(async (signal) => {
+  const baseSystemPrompt = contentMode === 'pitch' ? PITCH_SYSTEM_PT
     : contentMode === 'presentation' ? buildPresentationSystemPrompt(presentationPath) : AI_SYSTEM_PT;
+  const languageOverride = buildOutputLanguageSystemInstruction(outputLanguage);
+  const systemPrompt = languageOverride ? `${baseSystemPrompt}\n\n${languageOverride}` : baseSystemPrompt;
   let provider = _aiRuntimeSettings.textProvider;
   if (provider === 'openai' && !(getProviderKey('openai') || openaiKey)) provider = 'zai';
   if (provider === 'anthropic' && !getProviderKey('anthropic')) provider = 'zai';

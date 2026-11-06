@@ -3,6 +3,7 @@ import { CONTENT_OBJECTIVES, EDITORIAL_STRUCTURES, buildEditorialStrategyBlock, 
 import {
   applyEditorialReview,
   auditUnsupportedCommercialClaims,
+  auditUnsupportedSpecifics,
   assertPresentationTextLimits,
   auditPresentationTextLimits,
   buildEditorialReviewPrompt,
@@ -63,6 +64,20 @@ describe('objetivos e biblioteca editorial', () => {
 });
 
 describe('geração com uma revisão editorial', () => {
+  it('marca detalhes operacionais e troca de cliente por paciente sem apoio', () => {
+    const slides = [{
+      title: 'Fale com a equipe',
+      subtitle: 'Envie nos comentários ou na DM, sem compromisso.',
+      bodyAfterImage: 'Uma máquina de agendamentos para pacientes.',
+    }];
+    const issues = auditUnsupportedSpecifics(slides, 'A Black Frog cria sites para clientes locais.');
+    expect(issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'canal de resposta' }),
+      expect.objectContaining({ category: 'compromisso' }),
+      expect.objectContaining({ category: 'promessa de conversão' }),
+      expect.objectContaining({ category: 'termo do público', claim: 'pacientes' }),
+    ]));
+  });
   it('marca e remove promessa comercial que não existe no briefing', async () => {
     const first = draft();
     first.slides[1].subtitle = 'Publique hoje, sem taxas escondidas.';

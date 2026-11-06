@@ -79,3 +79,61 @@ export function longSocialSupportIndexes(slides, config = {}) {
     return support.length > SOCIAL_SUPPORT_MAX_CHARS || lines > SOCIAL_SUPPORT_MAX_LINES ? [index] : [];
   });
 }
+
+const REPEAT_STOPWORDS = new Set([
+  'a', 'as', 'o', 'os', 'de', 'da', 'das', 'do', 'dos', 'e', 'em', 'no', 'na', 'nos', 'nas', 'para', 'por', 'com',
+  'the', 'a', 'an', 'of', 'to', 'and', 'in', 'on', 'for', 'with', 'your', 'you', 'is', 'are',
+]);
+
+function repeatWords(value) {
+  return String(value || '')
+    .replace(/[*_~`]+/g, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .match(/[\p{L}\p{N}]+/gu) || [];
+}
+
+function repeatedPhraseCandidates(slide) {
+  const words = repeatWords([slide?.title, slide?.subtitle, slide?.bodyAfterImage].filter(Boolean).join(' '));
+  const phrases = new Set();
+  for (let size = Math.min(6, words.length); size >= 3; size -= 1) {
+    for (let start = 0; start + size <= words.length; start += 1) {
+      const part = words.slice(start, start + size);
+      if (part.join(' ').length < 15) continue;
+      if (part.filter(word => !REPEAT_STOPWORDS.has(word)).length < 2) continue;
+      phrases.add(part.join(' '));
+    }
+  }
+  for (let index = 0; index + 1 < words.length; index += 1) {
+    if (/^\d+(?:[.,]\d+)?$/.test(words[index]) && !REPEAT_STOPWORDS.has(words[index + 1])) {
+      phrases.add(`${words[index]} ${words[index + 1]}`);
+    }
+  }
+  return phrases;
+}
+
+/** Detecta repetição lexical entre cards; não compara ocorrências dentro do mesmo card. */
+export function auditRepeatedSocialPhrases(slides, config = {}) {
+  if (!requiresSocialTitles(config)) return [];
+  const occurrences = new Map();
+  (Array.isArray(slides) ? slides : []).forEach((slide, slideIndex) => {
+    for (const phrase of repeatedPhraseCandidates(slide)) {
+      if (!occurrences.has(phrase)) occurrences.set(phrase, new Set());
+      occurrences.get(phrase).add(slideIndex);
+    }
+  });
+  const candidates = [...occurrences.entries()]
+    .filter(([, indexes]) => indexes.size > 1)
+    .map(([phrase, indexes]) => ({ phrase, slideIndexes: [...indexes].sort((a, b) => a - b) }))
+    .sort((a, b) => b.phrase.split(' ').length - a.phrase.split(' ').length || b.phrase.length - a.phrase.length);
+  const selected = [];
+  for (const candidate of candidates) {
+    const sameCardsAlreadyCovered = selected.some(item => (
+      item.slideIndexes.join(',') === candidate.slideIndexes.join(',')
+      && item.phrase.includes(candidate.phrase)
+    ));
+    if (!sameCardsAlreadyCovered) selected.push(candidate);
+    if (selected.length >= 8) break;
+  }
+  return selected;
+}

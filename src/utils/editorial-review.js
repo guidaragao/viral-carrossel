@@ -5,7 +5,7 @@ import { isPitchPath, cleanPitchSlide, cleanPitchText } from './pitch-content.js
 import { presentationAIOptions, buildPresentationReviewRules } from './presentation.js';
 import { buildPresentationPlanPrompt, validatePresentationPlan, buildPresentationPlanBlock, attachPresentationPlan } from './presentation-plan.js';
 import { buildPresentationBlocksPrompt, normalizePresentationBlocks } from './presentation-quality.js';
-import { requiresSocialTitles, recoverSocialTitle, recoverSocialTitleAtClause, socialTitleMissing, missingSocialTitleIndexes, longSocialSupportIndexes, SOCIAL_SUPPORT_MAX_CHARS, SOCIAL_SUPPORT_MAX_LINES } from './social-generation.js';
+import { requiresSocialTitles, recoverSocialTitle, recoverSocialTitleAtClause, socialTitleMissing, missingSocialTitleIndexes, longSocialSupportIndexes, auditRepeatedSocialPhrases, SOCIAL_SUPPORT_MAX_CHARS, SOCIAL_SUPPORT_MAX_LINES } from './social-generation.js';
 import { PLATFORM_MAX_TOKENS } from '../../shared/ai-models.js';
 
 const cardCount = count => Math.max(1, Number(count) || 1);
@@ -54,13 +54,20 @@ const humanList = items => (items.length <= 1 ? String(items[0] ?? '') : `${item
 /** Non-blocking warning shown when the draft opens with cards still to adjust. */
 export function socialIssuesMessage(issues) {
   if (!issues) return '';
-  const cards = [...new Set([...(issues.missingTitles || []), ...(issues.longSupport || [])])].sort((a, b) => a - b).map(i => i + 1);
+  const cards = [...new Set([
+    ...(issues.missingTitles || []),
+    ...(issues.longSupport || []),
+    ...(issues.unsupportedSpecifics || []).map(item => item.slideIndex),
+    ...(issues.repeatedPhrases || []).flatMap(item => item.slideIndexes || []),
+  ])].sort((a, b) => a - b).map(i => i + 1);
   if (!cards.length) return '';
   const label = cards.length === 1 ? 'do card' : 'dos cards';
-  const what = issues.missingTitles?.length && issues.longSupport?.length
-    ? 'o título e o apoio'
-    : issues.missingTitles?.length ? 'o título' : 'o apoio';
-  return `Texto gerado e preservado. Ajuste ${what} ${label} ${humanList(cards)} antes de publicar.`;
+  const items = [];
+  if (issues.missingTitles?.length) items.push('o título');
+  if (issues.longSupport?.length) items.push('o apoio');
+  if (issues.repeatedPhrases?.length) items.push('as repetições');
+  if (issues.unsupportedSpecifics?.length) items.push('os detalhes não sustentados pelo briefing');
+  return `Texto gerado e preservado. Revise ${humanList(items)} ${label} ${humanList(cards)} antes de publicar.`;
 }
 
 const isObject = v => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -230,6 +237,13 @@ const COMMERCIAL_CLAIM_PATTERNS = [
   { category: 'item incluso', regex: /\b(?:inclui|inclus[oa]s?|vem com|acompanha)\b[^.!?\n]{1,100}/giu },
 ];
 
+const UNSUPPORTED_SPECIFIC_PATTERNS = [
+  { category: 'compromisso', regex: /\b(?:sem compromisso|no commitment|without commitment|sin compromiso)\b/giu },
+  { category: 'canal de resposta', regex: /\b(?:nos comentários|nos comentarios|por comentários|por comentarios|na dm|por dm|direct message|in the comments|comment below)\b/giu },
+  { category: 'origem da imagem', regex: /\b(?:nada de banco de imagens|sem banco de imagens|no stock (?:photos?|images?)|without stock (?:photos?|images?))\b/giu },
+  { category: 'promessa de conversão', regex: /\b(?:máquina de agendamentos|maquina de agendamentos|booking machine|máquina de vendas|maquina de vendas|sales machine)\b/giu },
+];
+
 const normalizeClaim = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 /** Marca promessas objetivas que aparecem no rascunho, mas não no material fornecido. */
@@ -248,6 +262,46 @@ export function auditUnsupportedCommercialClaims(slides, source) {
     }
   });
   return violations;
+}
+
+/** Detalhes operacionais ou mudanças de público que o modelo costuma sugerir sem base. */
+export function auditUnsupportedSpecifics(slides, source) {
+  if (typeof source !== 'string' || !source.trim()) return [];
+  const sourceText = normalizeClaim(source);
+  const sourceHasClient = /\b(?:cliente|clientes|client|clients|customer|customers)\b/u.test(sourceText);
+  const sourceHasPatient = /\b(?:paciente|pacientes|patient|patients)\b/u.test(sourceText);
+  const violations = [];
+  (Array.isArray(slides) ? slides : []).forEach((slide, slideIndex) => {
+    const text = [slide?.title, slide?.subtitle, slide?.bodyAfterImage].filter(Boolean).join(' ');
+    for (const rule of UNSUPPORTED_SPECIFIC_PATTERNS) {
+      for (const match of text.matchAll(rule.regex)) {
+        const claim = String(match[0] || '').trim();
+        if (!claim || sourceText.includes(normalizeClaim(claim))) continue;
+        violations.push({ slideIndex, category: rule.category, claim });
+      }
+    }
+    const normalizedText = normalizeClaim(text);
+    if (sourceHasClient && !sourceHasPatient) {
+      const claim = normalizedText.match(/\b(?:paciente|pacientes|patient|patients)\b/u)?.[0];
+      if (claim) violations.push({ slideIndex, category: 'termo do público', claim });
+    } else if (sourceHasPatient && !sourceHasClient) {
+      const claim = normalizedText.match(/\b(?:cliente|clientes|client|clients|customer|customers)\b/u)?.[0];
+      if (claim) violations.push({ slideIndex, category: 'termo do público', claim });
+    }
+  });
+  return violations;
+}
+
+function socialQualityIssues(result, config, baseIssues = null) {
+  if (!requiresSocialTitles(config)) return baseIssues;
+  const repeatedPhrases = auditRepeatedSocialPhrases(result?.slides, config);
+  const unsupportedSpecifics = auditUnsupportedSpecifics(result?.slides, config?.commercialClaimSource);
+  const issues = {
+    ...(baseIssues || {}),
+    ...(repeatedPhrases.length ? { repeatedPhrases } : {}),
+    ...(unsupportedSpecifics.length ? { unsupportedSpecifics } : {}),
+  };
+  return Object.values(issues).some(value => Array.isArray(value) && value.length) ? issues : null;
 }
 
 export function validateCarouselDraft(draft, { count, presetId, densityId, presentationPath, nativeBlocks = true, narrativeMode, allowMissingSocialTitles = false, allowLongSocialSupport = false }) {
@@ -329,18 +383,27 @@ Cada edição exige slideIndex e reason; inclua somente os campos que mudam: ${e
   const missingTitles = missingSocialTitleIndexes(draft?.slides, config);
   const longSupport = longSocialSupportIndexes(draft?.slides, config);
   const unsupportedClaims = auditUnsupportedCommercialClaims(draft?.slides, config?.commercialClaimSource);
+  const unsupportedSpecifics = auditUnsupportedSpecifics(draft?.slides, config?.commercialClaimSource);
+  const repeatedPhrases = auditRepeatedSocialPhrases(draft?.slides, config);
   const titleRule = requiresSocialTitles(config)
     ? `\nTODOS os cards, em qualquer modo narrativo, exigem title curto e específico, nunca vazio nem "Seu título aqui". Separe a ideia principal de subtitle sem apagar o desenvolvimento. Subtitle deve ocupar no máximo ${SOCIAL_SUPPORT_MAX_LINES} linhas curtas e ${SOCIAL_SUPPORT_MAX_CHARS} caracteres.${missingTitles.length ? ` Correção obrigatória: preencha title nos slideIndex ${missingTitles.join(', ')} usando apenas o argumento já escrito.` : ''}${longSupport.length ? ` Correção obrigatória: condense subtitle nos slideIndex ${longSupport.join(', ')} sem perder fatos.` : ''}`
     : '';
   const claimsRule = unsupportedClaims.length
     ? `\nALEGAÇÕES COMERCIAIS SUGERIDAS SEM APOIO NO BRIEFING — correção obrigatória: ${unsupportedClaims.map(item => `slideIndex ${item.slideIndex}: ${item.claim}`).join('; ')}. Remova a alegação ou qualifique explicitamente como hipótese; não substitua por outra promessa.`
     : '';
+  const specificsRule = unsupportedSpecifics.length
+    ? `\nDETALHES SUGERIDOS SEM APOIO NO BRIEFING — correção obrigatória: ${unsupportedSpecifics.map(item => `slideIndex ${item.slideIndex}: ${item.claim}`).join('; ')}. Remova-os ou substitua-os por uma formulação estritamente sustentada pelo material.`
+    : '';
+  const repetitionRule = repeatedPhrases.length
+    ? `\nREPETIÇÕES ENTRE CARDS — correção obrigatória: ${repeatedPhrases.map(item => `“${item.phrase}” nos slideIndex ${item.slideIndexes.join(', ')}`).join('; ')}. Preserve o fato uma vez e faça os demais cards avançarem o arco.`
+    : '';
   return `REVISÃO EDITORIAL — UMA RODADA, SOMENTE TEXTO.
 O briefing abaixo é referência, não um pedido para gerar o carrossel novamente.
 <briefing>\n${prompt}\n</briefing>
 <rascunho>\n${JSON.stringify(draft)}\n</rascunho>
-Verifique: promessa da capa entregue pelo miolo; slide 2 útil; progressão sem repetição; exemplos concretos; afirmações sustentadas pelo material; voz e densidade; legenda complementar; um CTA coerente com o objetivo.${titleRule}${claimsRule}
+Verifique: promessa da capa entregue pelo miolo; slide 2 útil; progressão sem repetição; exemplos concretos; afirmações sustentadas pelo material; voz e densidade; legenda complementar; um CTA coerente com o objetivo.${titleRule}${claimsRule}${specificsRule}${repetitionRule}
 Corrija apenas problemas identificados. Preserve ordem, quantidade, assunto, arco, números e fatos sustentados. Remova ou qualifique alegações sem apoio; não acrescente fontes ou fatos. Não altere imageQuery, cultureTone, layout nem qualquer configuração visual.
+Fidelidade lexical: preserve os nomes que o briefing usa para público, produto e serviço. Não invente canal de resposta (comentários, DM), compromisso comercial, origem de imagens, item incluído/excluído ou mecanismo de conversão. Não troque “cliente” por “paciente” ou outro papel sem apoio explícito.
 Use slideIndex começando em zero. Não envie edições para slides que já estejam bons. Cada índice aparece no máximo uma vez. Nunca preencha bodyAfterImage onde o layout exige vazio.
 Resposta: um único objeto JSON {"edits":[{"slideIndex":0,"reason":"problema concreto","title":"texto corrigido"}],"caption":"legenda corrigida apenas se necessário"}.
 Cada edição exige slideIndex e reason; inclua somente os campos que mudam: title, subtitle, bodyAfterImage. caption é opcional. Se estiver adequado, retorne {"edits":[]}. Sem notas, notas numéricas, previsão de viralização ou campos extras.`;
@@ -437,9 +500,10 @@ export async function generateReviewedCarousel({ prompt, config, aiOptions, onRe
     // that the review left behind are settled below instead of discarding a
     // complete, paid draft.
     const reviewed = applyEditorialReview(draft, review, relaxedConfig);
-    const { result, issues } = settleSocialDraft(reviewed, config);
-    if (issues) return { result, reviewStatus: 'needs_attention', socialIssues: issues };
-    return { result, reviewStatus: JSON.stringify(result) === JSON.stringify(draft) ? 'unchanged' : 'revised' };
+    const settled = settleSocialDraft(reviewed, config);
+    const issues = socialQualityIssues(settled.result, config, settled.issues);
+    if (issues) return { result: settled.result, reviewStatus: 'needs_attention', socialIssues: issues };
+    return { result: settled.result, reviewStatus: JSON.stringify(settled.result) === JSON.stringify(draft) ? 'unchanged' : 'revised' };
   } catch (error) {
     if (isGenerationCancelled(error) || aiOptions?.signal?.aborted) throw error;
     if (auditUnsupportedCommercialClaims(draft.slides, config?.commercialClaimSource).length) {
@@ -450,9 +514,10 @@ export async function generateReviewedCarousel({ prompt, config, aiOptions, onRe
     if (!isPresentation) {
       // The draft is complete and valid apart from title/support length: open
       // it with a clear warning naming the cards, never empty placeholders.
-      const { result, issues } = settleSocialDraft(draft, config);
-      if (issues) return { result, reviewStatus: 'needs_attention', socialIssues: issues, reviewError: error?.code || null };
-      return { result, reviewStatus: 'unavailable' };
+      const settled = settleSocialDraft(draft, config);
+      const issues = socialQualityIssues(settled.result, config, settled.issues);
+      if (issues) return { result: settled.result, reviewStatus: 'needs_attention', socialIssues: issues, reviewError: error?.code || null };
+      return { result: settled.result, reviewStatus: 'unavailable' };
     }
     // A revisão é a única oportunidade automática de corrigir um primeiro
     // rascunho acima dos limites. Se ela falhar ou continuar inválida, não

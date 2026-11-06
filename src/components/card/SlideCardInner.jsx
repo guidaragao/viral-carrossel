@@ -27,7 +27,7 @@ import { splitLeadingUppercaseLabel } from '../../utils/subtitle-label.js';
 import { headerCenterText, dedupeHeaderColumns } from '../../utils/card-header.js';
 import { useElementDrag } from './useElementDrag.js';
 import { slideHasPendingPhotoIntent, inferCanvasDefaults, sandwichPhotoZoneImgStyle } from '../../utils/canvas-zones.js';
-import { DEFAULT_SLIDE_TEXT_INSET, SANDWICH_PHOTO_ZONE_MIN_H_PCT, clampRect, DEFAULT_CANVAS_ZONES_CLASSIC, CANVAS_AUTO_EDGE_PCT } from '../../utils/canvas-layout.js';
+import { DEFAULT_SLIDE_TEXT_INSET, sandwichFlowMetrics, clampRect, DEFAULT_CANVAS_ZONES_CLASSIC, CANVAS_AUTO_EDGE_PCT } from '../../utils/canvas-layout.js';
 
 /**
  * Texto com os trechos de "Marcar destaque" pintados na cor de acento.
@@ -2071,6 +2071,7 @@ const SlideCardInner = React.forwardRef(({
     (!!slide.bgImage || slideHasPendingPhotoIntent(slide)) &&
     !sandwich &&
     !cultureStatFlat;
+  const sandwichFlow = sandwichFlowMetrics(slide, { hasPhoto: sandwich });
   // Badge classic (com avatar circular + handle) deve aparecer em TODOS os modos —
   // o usuário controla via toggle "Mostrar @ nos slides" e posição via sliders handleBadgeX/Y.
   // (Antes era escondido em culturePack assumindo que o handle iria na editorial bar,
@@ -2784,9 +2785,9 @@ const SlideCardInner = React.forwardRef(({
     const flatPhotoPlaceholderStyle = {
       width: '100%',
       borderRadius: f.w * 0.017,
-      height: f.h * (SANDWICH_PHOTO_ZONE_MIN_H_PCT / 100),
+      height: f.h * (sandwichFlow.photoHeightPct / 100),
       minHeight: f.h * 0.22,
-      maxHeight: f.h * 0.32,
+      maxHeight: f.h * (sandwichFlow.photoMaxHeightPct / 100),
       flex: '0 1 auto',
       flexShrink: 1,
       background: cr.solidBgIsLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.07)',
@@ -2860,10 +2861,10 @@ const SlideCardInner = React.forwardRef(({
             display:'flex',
             flexDirection:'column',
             gap: f.h * 0.024,
-            // Sempre flex-start: space-between empurrava o primeiro item PRA CIMA quando havia
-            // overflow. Agrupado, o scaler reduz e a zona recorta o excesso; separado, filhos
-            // deslocados podem atravessar a antiga zona e só a borda do card os limita.
-            justifyContent: 'flex-start',
+            // Texto curto ocupa o card como composição, não como um bloco preso
+            // ao topo. Conteúdo longo continua em flex-start para o scaler medir
+            // o transbordo sem empurrar o primeiro item para fora da área.
+            justifyContent: sandwichFlow.justifyContent,
             ...VC_TEXT_ZONE_STYLE,
             overflow: overflowDosElementosSeparados(
               elementsUnlocked,
@@ -2983,8 +2984,8 @@ const SlideCardInner = React.forwardRef(({
           {sandwich && slide.videoId && getVideoUrl(slide.videoId) && (
             <div data-vc-photo-zone="1" {...movSeparate('photo', {
               width:'100%', flex: '0 1 auto',
-              height: f.h * (SANDWICH_PHOTO_ZONE_MIN_H_PCT / 100),
-              minHeight: f.h * 0.22, maxHeight: f.h * 0.32,
+              height: f.h * (sandwichFlow.photoHeightPct / 100),
+              minHeight: f.h * 0.22, maxHeight: f.h * (sandwichFlow.photoMaxHeightPct / 100),
               borderRadius: f.w * 0.017, overflow:'hidden', flexShrink:1, position:'relative',
               background: cr.solidBgIsLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)',
               boxShadow: 'var(--shadow-product)',
@@ -3018,9 +3019,9 @@ const SlideCardInner = React.forwardRef(({
             <div data-vc-photo-zone="1" {...movSeparate('photo', {
               width:'100%',
               flex: '0 1 auto',
-              height: f.h * (SANDWICH_PHOTO_ZONE_MIN_H_PCT / 100),
+              height: f.h * (sandwichFlow.photoHeightPct / 100),
               minHeight: f.h * 0.22,
-              maxHeight: f.h * 0.32,
+              maxHeight: f.h * (sandwichFlow.photoMaxHeightPct / 100),
               borderRadius: f.w * 0.017,
               overflow:'hidden',
               flexShrink:1,

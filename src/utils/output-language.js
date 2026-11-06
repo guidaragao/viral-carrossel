@@ -29,7 +29,9 @@ export function explicitOutputLanguage(text) {
   for (const [lang, name] of Object.entries(LANG_NAMES)) {
     const direct = new RegExp(`(?:^|[^a-z])(?:in|em|en)\\s+${name}(?![a-z])`);
     const asked = new RegExp(`${ASK}[^.\\n]{0,24}\\b(?:in|em|en)\\s+${name}(?![a-z])`);
-    if (direct.test(t) || asked.test(t)) return lang;
+    const labelled = new RegExp(`\\b(?:language|idioma|output(?:\\s+language)?|l[ií]ngua)\\s*(?::|=|-)\\s*${name}(?![a-z])`);
+    const visibleFields = new RegExp(`\\b(?:all\\s+)?(?:titles?|texts?|copy|content|headlines?|captions?)\\b[^.\\n]{0,32}\\b(?:in|em|en|must\\s+be|should\\s+be)\\s+${name}(?![a-z])`);
+    if (direct.test(t) || asked.test(t) || labelled.test(t) || visibleFields.test(t)) return lang;
   }
   return null;
 }
@@ -72,4 +74,15 @@ export function buildOutputLanguageBlock(material = {}, topic = '') {
   return `
 IDIOMA DE SAÍDA (prevalece sobre qualquer menção a português neste pedido e nas regras do sistema): escreva TODO o texto visível ao leitor em ${label} (${native}): títulos, subtítulos, corpo, CTA, legenda e notas do apresentador. As regras deste pedido estão em português só por serem internas do app. Não traduza nomes próprios nem marcas. Os nomes de campos do schema continuam como estão.
 `;
+}
+
+/** Reforço curto no papel de sistema para o modelo não voltar ao português padrão. */
+export function buildOutputLanguageSystemInstruction(lang) {
+  if (lang === 'en') {
+    return 'OUTPUT LANGUAGE OVERRIDE: Write every reader-visible field in natural English, including titles, subtitles, body copy and captions. Keep only image search queries in English as already required. Portuguese instructions are internal product rules, not the requested output language.';
+  }
+  if (lang === 'es') {
+    return 'IDIOMA DE SALIDA OBLIGATORIO: escribe en español natural todos los campos visibles para el lector, incluidos títulos, subtítulos, cuerpo y leyenda. Las instrucciones en portugués son reglas internas del producto, no el idioma de salida.';
+  }
+  return '';
 }

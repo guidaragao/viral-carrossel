@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildGenerationSlideLayoutRules, buildRefineSingleSlideRules, buildGenerationJsonContract } from '../../src/utils/generation-prompts.js';
 import { validateCarouselDraft, generateReviewedCarousel, generationMaxTokens, editorialReviewMaxTokens, socialIssuesMessage } from '../../src/utils/editorial-review.js';
-import { recoverSocialTitle, recoverSocialTitleAtClause, requiresSocialTitles } from '../../src/utils/social-generation.js';
+import { auditRepeatedSocialPhrases, recoverSocialTitle, recoverSocialTitleAtClause, requiresSocialTitles } from '../../src/utils/social-generation.js';
 import { compatibleReasoningPayload } from '../../src/utils/ai-client.js';
 import { cultureAccentRenderablePieces } from '../../src/utils/text-spans.js';
 
@@ -79,6 +79,19 @@ describe('Prender atenção: títulos completos e preservação do texto', () =>
 
   it('mantém apresentação fora do contrato de títulos sociais', () => {
     expect(requiresSocialTitles({ presetId: 'apresentacao', narrativeMode: 'viral' })).toBe(false);
+  });
+
+  it('identifica número e expressão repetidos entre cards sem contar repetição interna', () => {
+    const slides = [
+      { title: 'A história começou', subtitle: '22 anos de prática construíram confiança.' },
+      { title: 'O problema antigo', subtitle: 'Botões em outro idioma afastavam clientes.' },
+      { title: 'O diagnóstico', subtitle: 'Mesmo com 22 anos de prática, o site confundia.' },
+      { title: 'A reconstrução', subtitle: 'Corrigimos os botões em outro idioma antes do lançamento.' },
+    ];
+    expect(auditRepeatedSocialPhrases(slides, config)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ phrase: '22 anos de pratica', slideIndexes: [0, 2] }),
+      expect.objectContaining({ phrase: 'botoes em outro idioma', slideIndexes: [1, 3] }),
+    ]));
   });
 
   it('faz apenas as2chamadas existentes e apresenta à revisão todos os títulos recuperados', async () => {
@@ -161,7 +174,11 @@ describe('Prender atenção: títulos completos e preservação do texto', () =>
     expect(output.result.slides).toHaveLength(7);
     expect(output.result.slides[5].title).toBe('Quando o cliente procura no Google');
     expect(`${output.result.slides[5].title}, ${output.result.slides[5].subtitle}`).toBe(first.slides[5].subtitle);
-    expect(output.socialIssues).toEqual({ missingTitles: [], longSupport: [6] });
+    expect(output.socialIssues).toMatchObject({
+      missingTitles: [],
+      longSupport: [6],
+      repeatedPhrases: [expect.objectContaining({ phrase: 'um endereco da sua marca', slideIndexes: [1, 6] })],
+    });
     expect(output.result.slides[6].subtitle).toBe(first.slides[6].subtitle);
   });
 
@@ -173,7 +190,7 @@ describe('Prender atenção: títulos completos e preservação do texto', () =>
     expect(output.reviewStatus).toBe('needs_attention');
     expect(output.result.slides[0].title).toBe('Seu negócio aparece no mapa?');
     expect(output.socialIssues.longSupport).toEqual([1]);
-    expect(socialIssuesMessage(output.socialIssues)).toBe('Texto gerado e preservado. Ajuste o apoio do card 2 antes de publicar.');
+    expect(socialIssuesMessage(output.socialIssues)).toBe('Texto gerado e preservado. Revise o apoio do card 2 antes de publicar.');
   });
 
   it('mantém o bloqueio de promessa comercial sem apoio mesmo quando a revisão falha', async () => {

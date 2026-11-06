@@ -1090,7 +1090,7 @@ ${hookVisualHint}
 function buildGenerationSlideLayoutRules(narrativeModeId, creativePresetId, textDensityId = '1_1', slideCount = 9, presentationPath = 'auto') {
   const rules = buildGenerationSlideLayoutRulesBody(narrativeModeId, creativePresetId, textDensityId, slideCount, presentationPath);
   if (creativePresetId === 'apresentacao') return rules;
-  return `${rules}\n\nREGRA DE LEGIBILIDADE PARA TODOS OS MODOS SOCIAIS:\n- Cada card deve ter title curto, específico e não vazio. Nunca use “Seu título aqui”.\n- subtitle desenvolve a ideia em no máximo 3 linhas curtas e 160 caracteres; distribua conteúdo adicional em outro card ou bodyAfterImage quando o layout permitir.`;
+  return `${rules}\n\nREGRAS PARA TODOS OS MODOS SOCIAIS:\n- Cada card deve ter title curto, específico e não vazio. Nunca use “Seu título aqui”.\n- subtitle desenvolve a ideia em no máximo 3 linhas curtas e 160 caracteres; distribua conteúdo adicional em outro card ou bodyAfterImage quando o layout permitir.\n- FIDELIDADE AO BRIEFING: preserve os termos exatos usados para público, produto e serviço. Não invente canal de resposta (comentários, DM), “sem compromisso”, política de banco de imagens, item incluído/excluído ou promessa de conversão. Não troque cliente por paciente sem apoio explícito.\n- Cada fato, exemplo ou expressão distintiva aparece em um só card. Cards seguintes avançam o arco; não repita números, diagnósticos ou frases para preencher espaço.`;
 }
 
 function buildGenerationImageLayer(presetId, topic, n, audience, projectDirection = false, presentationPath = 'auto') {

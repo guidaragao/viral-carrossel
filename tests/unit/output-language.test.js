@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   explicitOutputLanguage, detectTextLanguage, resolveOutputLanguage, buildOutputLanguageBlock,
+  buildOutputLanguageSystemInstruction,
 } from '../../src/utils/output-language.js';
 
 const BRIEF_EN = 'Black Frog builds websites for local businesses in San Diego. Case: a Brazilian massage therapist with 22 years of practice, 5.0 on Yelp and Google, whose old site was a template with a wrong phone number and no prices.';
@@ -14,6 +15,8 @@ describe('idioma de saída', () => {
     expect(explicitOutputLanguage('aula de inglês para crianças')).toBe(null);
     expect(explicitOutputLanguage('inclua tudo sobre o curso de inglês')).toBe(null);
     expect(explicitOutputLanguage('Texto final em inglês, por favor')).toBe('en');
+    expect(explicitOutputLanguage('Language: English. All titles and texts in English.')).toBe('en');
+    expect(explicitOutputLanguage('Output language = Spanish')).toBe('es');
   });
   it('segue a língua do brief quando não há pedido', () => {
     expect(detectTextLanguage(BRIEF_EN)).toBe('en');
@@ -26,5 +29,7 @@ describe('idioma de saída', () => {
     expect(buildOutputLanguageBlock({ content: BRIEF_PT })).toBe('');
     expect(buildOutputLanguageBlock({}, BRIEF_EN)).toContain('IDIOMA DE SAÍDA');
     expect(buildOutputLanguageBlock({}, BRIEF_EN)).toContain('inglês');
+    expect(buildOutputLanguageSystemInstruction('en')).toContain('every reader-visible field');
+    expect(buildOutputLanguageSystemInstruction('pt')).toBe('');
   });
 });

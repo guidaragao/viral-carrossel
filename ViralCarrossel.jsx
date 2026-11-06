@@ -4983,7 +4983,11 @@ Não invente garantia, prazo, preço, item incluso ou promessa comercial que nã
     const remixBlock = remix ? buildRemixBlock(sourceSlides, fetchImagesNow) : '';
     const jsonShapeLine = buildGenerationJsonContract(cp, td, count, projectDesignInstructions ? PROJECT_DESIGN_SCHEMA : null, presentationPathId);
 
-    const outputLang = resolveOutputLanguage({ instructions: material?.context, content: material?.content, topic });
+    const outputLang = resolveOutputLanguage({
+      instructions: material?.context,
+      content: [material?.content, styleKit?.contextMd].filter(Boolean).join('\n'),
+      topic,
+    });
     const outputLangLabel = OUTPUT_LANGUAGE_LABELS[outputLang] || OUTPUT_LANGUAGE_LABELS.pt;
     const idiomaRegra = `
 REGRA DE IDIOMA (obrigatória):
@@ -5102,7 +5106,7 @@ ${jsonShapeLine}`;
           });
         },
       },
-      aiOptions: { maxTokens: genMaxTokens, openaiKey, signal: job.signal },
+      aiOptions: { maxTokens: genMaxTokens, openaiKey, outputLanguage: outputLang, signal: job.signal },
       onStage: stage => {
         checkActive();
         const stages = {
